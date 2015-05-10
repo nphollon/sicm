@@ -1,13 +1,16 @@
 module Symbolic where
 
-type alias LiteralFunction = List Symbol
+type alias Expression = List Symbol
 type Symbol = Unknown | Number Float | Plus
 type ParseError = StackEmpty | StackTooBig
 
-{-}
-valueAt : Float -> LiteralFunction -> Result Float
-valueAt x = Result.andThen pullFromStack << List.foldl (Result.andThen << parseWith x) []
--}
+valueAt : Float -> Expression -> Result ParseError Float
+valueAt x f =
+  let
+    (...) = Result.andThen
+    stackResult = Ok []
+    parseNext symbol result = result ... (parseWith x symbol)
+  in List.foldl parseNext stackResult f ... pullFromStack
 
 parseWith : Float -> Symbol -> List Float -> Result ParseError (List Float)
 parseWith x c stack = case c of

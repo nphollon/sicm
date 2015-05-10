@@ -1,0 +1,14 @@
+{
+    "version": "1.0.0",
+    "summary": "Working through _Structure and Interpretation of Classical Mechanics_",
+    "repository": "https://github.com/nphollon/mechanics.git",
+    "license": "GPLv3",
+    "source-directories": [
+        "."
+    ],
+    "exposed-modules": [],
+    "dependencies": {
+        "elm-lang/core": "2.0.0 <= v < 3.0.0"
+    },
+    "elm-version": "0.15.0 <= v < 0.16.0"
+}

@@ -1,6 +1,6 @@
 module Symbolic where
 
-import Dict
+import Dict exposing (Dict)
 import String
 
 type alias Expression = List Symbol
@@ -9,17 +9,20 @@ type Error = StackEmpty | StackTooBig | BadToken String
 
 (...) = Result.andThen
 
-symbols = Dict.fromList [("+", Plus), ("1", Number 1)]
-
 evaluate v x f = lex x f ... valueAt v
 
 lex : String -> String -> Result Error Expression
 lex unknown text = 
   let
-    lookup token = Dict.insert unknown Unknown symbols |> Dict.get token |> Result.fromMaybe (BadToken token)
-    identify token = lookup token
-    mergeResult token symbols = Result.map2 (::) (identify token) symbols 
+    symbolTable = Dict.fromList [("+", Plus), ("1", Number 1), (unknown, Unknown)]
+    mergeResult token lexedSymbols = Result.map2 (::) (identify token symbolTable) lexedSymbols 
   in List.foldr mergeResult (Ok []) (String.words text)
+
+identify : String -> Dict String Symbol -> Result Error Symbol
+identify token symbols =
+  case String.toFloat token of
+    Ok f -> Ok (Number f)
+    Err _ -> Dict.get token symbols |> Result.fromMaybe (BadToken token)
 
 valueAt : Float -> Expression -> Result Error Float
 valueAt x f =

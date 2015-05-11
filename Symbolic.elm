@@ -9,19 +9,17 @@ type Expression =
   Binary (Float -> Float -> Float) Expression Expression |
   Unary (Float -> Float) Expression
 
-type Error = StackEmpty | StackTooBig
+type Error = StackEmpty | StackTooBig | UndefinedSymbols 
 
 (...) = Result.andThen
 
---evaluate : Float -> String -> String -> Float
---evaluate v x f = lex f ... parse ... substitute x v ... reduce
+evaluate : Float -> String -> String -> Result Error Float
+evaluate x v f = Result.map (substitute x v) (parse f) ... result
 
-lex : String -> Result Error (List String)
-lex text = Ok (String.words text)
-
-parse : List String -> Result Error Expression
-parse tokens =
+parse : String -> Result Error Expression
+parse text =
   let
+    tokens = String.words text
     stackResult = Ok []
     parseNext token result = result ... (parseWith token)
   in List.foldl parseNext stackResult tokens ... pullFromStack
@@ -66,3 +64,23 @@ pullFromStack s = case s of
   [ y ] -> Ok y
   [] -> Err StackEmpty
   otherwise -> Err StackTooBig
+
+
+substitute : Float -> String -> Expression -> Expression
+substitute x name expr = 
+  let
+    recurse = substitute x name
+  in case expr of
+    Symbol name -> Number x
+    Unary op operand -> case (recurse operand) of
+      Number a -> Number (op a)
+      s -> Unary op s
+    Binary op first second -> case ((recurse first), (recurse second)) of
+      (Number a, Number b) -> Number (op a b)
+      (s, t) -> Binary op s t
+    otherwise -> expr
+
+result : Expression -> Result Error Float
+result expr = case expr of
+  Number a -> Ok a
+  otherwise -> Err UndefinedSymbols

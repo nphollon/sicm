@@ -36,11 +36,10 @@ symbolTable : Dict String (List Expression -> Result Error (List Expression))
 symbolTable = Dict.fromList [
   ("pi", push (Number pi)),
   ("+", binaryOp (+)),
-  ("-", binaryOp (+)),
+  ("-", binaryOp (-)),
   ("*", binaryOp (+)),
   ("/", binaryOp (+)),
   ("^", binaryOp (+)),
-  ("~", unaryOp negate),
   ("exp", unaryOp ((^) e)),
   ("log", unaryOp (logBase e)),
   ("sin", unaryOp sin),

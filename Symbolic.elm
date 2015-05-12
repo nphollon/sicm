@@ -9,12 +9,16 @@ type Expression =
   Binary (Float -> Float -> Float) Expression Expression |
   Unary (Float -> Float) Expression
 
-type Error = StackEmpty | StackTooBig | UndefinedSymbols 
+type Error =
+  StackEmpty |
+  StackTooBig |
+  UndefinedSymbols |
+  NotDifferentiable
 
 (...) = Result.andThen
 
 evaluate : Float -> String -> String -> Result Error Float
-evaluate x v f = Result.map (substitute x v) (parse f) ... result
+evaluate x v f = Result.map (substitute x v >> simplify) (parse f) ... result
 
 parse : String -> Result Error Expression
 parse text =
@@ -64,6 +68,9 @@ pullFromStack s = case s of
   [] -> Err StackEmpty
   otherwise -> Err StackTooBig
 
+-- TODO create simply function that
+-- reduces operations involving identities (multiplying by 1 or 0, or adding 0)
+-- associativity (a * (b + c) -> a*b + a*c)
 
 substitute : Float -> String -> Expression -> Expression
 substitute x name expr = 
@@ -71,15 +78,35 @@ substitute x name expr =
     recurse = substitute x name
   in case expr of
     Symbol name -> Number x
-    Unary op operand -> case (recurse operand) of
-      Number a -> Number (op a)
-      s -> Unary op s
-    Binary op first second -> case ((recurse first), (recurse second)) of
-      (Number a, Number b) -> Number (op a b)
-      (s, t) -> Binary op s t
+    Unary op operand -> Unary op (recurse operand)
+    Binary op first second -> Binary op (recurse first) (recurse second)
+    otherwise -> expr
+
+simplify : Expression -> Expression
+simplify expr = 
+  case expr of
+    Unary op f -> case simplify f of
+      Number c -> Number (op c)
+      f' -> Unary op f'
+    Binary op f g -> case (simplify f, simplify g) of
+      (Number c, Number d) -> Number (op c d)
+      (f', g') -> Binary op f' g'
     otherwise -> expr
 
 result : Expression -> Result Error Float
 result expr = case expr of
   Number a -> Ok a
   otherwise -> Err UndefinedSymbols
+
+{-}
+differentiate : String -> Expression -> Result Error Expression
+differentiate symbol expr =
+  let
+    recurse f = differentiate symbol f
+  in case expr of
+  Number a -> Ok (Number 0)
+  Symbol symbol -> Ok (Number 1)
+  Symbol _ -> Ok (Number 0)
+  Binary (+) f g -> Result.map2 (Binary (+)) (recurse f) (recurse g) |> Ok
+  otherwise -> Err NotDifferentiable
+  -}

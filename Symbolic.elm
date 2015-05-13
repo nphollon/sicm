@@ -6,14 +6,31 @@ import String
 type Expression =
   Symbol String |
   Number Float |
-  Binary (Float -> Float -> Float) Expression Expression |
-  Unary (Float -> Float) Expression
+  Binary BinaryOp Expression Expression |
+  Unary UnaryOp Expression
+
+type BinaryOp = Plus | Minus | Times | Over | Power
+type UnaryOp = Exp | Log | Sin | Cos
 
 type Error =
   StackEmpty |
   StackTooBig |
   UndefinedSymbols |
   NotDifferentiable
+
+
+symbolTable : Dict String (List Expression -> Result Error (List Expression))
+symbolTable = Dict.fromList [
+  ("pi", push (Number pi)),
+  ("+", binaryOp Plus),
+  ("-", binaryOp Minus),
+  ("*", binaryOp Times),
+  ("/", binaryOp Over),
+  ("^", binaryOp Power),
+  ("exp", unaryOp Exp),
+  ("log", unaryOp Log),
+  ("sin", unaryOp Sin),
+  ("cos", unaryOp Cos) ]
 
 (...) = Result.andThen
 
@@ -36,25 +53,12 @@ parseWith token stack =
       Ok x -> push (Number x) stack
       Err _ -> push (Symbol token) stack
 
-symbolTable : Dict String (List Expression -> Result Error (List Expression))
-symbolTable = Dict.fromList [
-  ("pi", push (Number pi)),
-  ("+", binaryOp (+)),
-  ("-", binaryOp (-)),
-  ("*", binaryOp (+)),
-  ("/", binaryOp (+)),
-  ("^", binaryOp (+)),
-  ("exp", unaryOp ((^) e)),
-  ("log", unaryOp (logBase e)),
-  ("sin", unaryOp sin),
-  ("cos", unaryOp cos) ]
-
-binaryOp : (Float -> Float -> Float) -> List Expression -> Result Error (List Expression)
+binaryOp : BinaryOp -> List Expression -> Result Error (List Expression)
 binaryOp op stack = case stack of
   (y :: x :: rest) -> push (Binary op x y) rest
   otherwise -> Err StackEmpty
 
-unaryOp : (Float -> Float) -> List Expression -> Result Error (List Expression)
+unaryOp : UnaryOp -> List Expression -> Result Error (List Expression)
 unaryOp op stack = case stack of
   (x :: rest) -> push (Unary op x) rest
   otherwise -> Err StackEmpty
@@ -68,16 +72,12 @@ pullFromStack s = case s of
   [] -> Err StackEmpty
   otherwise -> Err StackTooBig
 
--- TODO create simply function that
--- reduces operations involving identities (multiplying by 1 or 0, or adding 0)
--- associativity (a * (b + c) -> a*b + a*c)
-
 substitute : Float -> String -> Expression -> Expression
 substitute x name expr = 
   let
     recurse = substitute x name
   in case expr of
-    Symbol name -> Number x
+    Symbol s -> if (s == name) then (Number x) else expr
     Unary op operand -> Unary op (recurse operand)
     Binary op first second -> Binary op (recurse first) (recurse second)
     otherwise -> expr
@@ -85,13 +85,41 @@ substitute x name expr =
 simplify : Expression -> Expression
 simplify expr = 
   case expr of
-    Unary op f -> case simplify f of
-      Number c -> Number (op c)
-      f' -> Unary op f'
-    Binary op f g -> case (simplify f, simplify g) of
-      (Number c, Number d) -> Number (op c d)
-      (f', g') -> Binary op f' g'
+    Binary op f g -> simplifyBinary op (simplify f) (simplify g)
+    Unary op f -> simplifyUnary op (simplify f)
     otherwise -> expr
+
+simplifyUnary : UnaryOp -> Expression -> Expression
+simplifyUnary op f = case (op, f) of
+  (Exp, Number a) -> Number (e ^ a)
+  (Log, Number a) -> Number (logBase e a)
+  (Sin, Number a) -> Number (sin a)
+  (Cos, Number a) -> Number (cos a)
+  otherwise -> Unary op f
+
+
+simplifyBinary : BinaryOp -> Expression -> Expression -> Expression
+simplifyBinary op f g = case (op, f, g) of
+  (Plus, Number 0, _) -> g
+  (Plus, _, Number 0) -> f
+  (Plus, Number a, Number b) -> Number (a + b)
+
+  (Minus, _, _) -> simplify (Binary Plus f (Binary Times g (Number -1)))
+
+  (Times, Number 0, _) -> Number 0
+  (Times, _, Number 0) -> Number 0
+  (Times, Number 1, _) -> g
+  (Times, _, Number 1) -> f
+  (Times, Number a, Number b) -> Number (a * b)
+
+  (Over, _, _) -> simplify (Binary Times f (Binary Power g (Number -1)))
+
+  (Power, _, Number 0) -> Number 1
+  (Power, Number 1, _) -> Number 1
+  (Power, _, Number 1) -> f
+  (Power, Number a, Number b) -> Number (a ^ b)
+
+  otherwise -> Binary op f g
 
 result : Expression -> Result Error Float
 result expr = case expr of

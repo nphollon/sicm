@@ -126,15 +126,34 @@ result expr = case expr of
   Number a -> Ok a
   otherwise -> Err UndefinedSymbols
 
-{-}
-differentiate : String -> Expression -> Result Error Expression
+
+differentiate : String -> Expression -> Expression
 differentiate symbol expr =
+  case expr of
+    Number a -> Number 0
+    Symbol s -> if (s == symbol) then (Number 1) else (Number 0)
+    Binary op f g -> binaryChainRule symbol op f g
+    Unary op f -> f
+
+binaryChainRule : String -> BinaryOp -> Expression -> Expression -> Expression
+binaryChainRule symbol op a b =
   let
-    recurse f = differentiate symbol f
-  in case expr of
-  Number a -> Ok (Number 0)
-  Symbol symbol -> Ok (Number 1)
-  Symbol _ -> Ok (Number 0)
-  Binary (+) f g -> Result.map2 (Binary (+)) (recurse f) (recurse g) |> Ok
-  otherwise -> Err NotDifferentiable
-  -}
+    d g = differentiate symbol g
+    dOp g h dg dh = case op of
+      Plus -> Binary Plus dg dh
+      Minus -> Binary Minus dg dh
+      Times -> Binary Plus (Binary Times h dg) (Binary Times dh g)
+      Over -> Binary Minus (Binary Over dg h) (Binary Times g (Binary Times dh (Binary Power h (Number -2))))
+      Power -> Binary Times (Binary Power g h) (Binary Plus (Binary Times dh (Unary Log g)) (Binary Times h (Binary Over dg g)))
+  in dOp a b (d a) (d b)
+
+unaryChainRule : String -> UnaryOp -> Expression -> Expression
+unaryChainRule symbol op a =
+  let
+    d g = differentiate symbol g
+    dOp g dg = case op of
+      Exp -> Binary Times dg (Unary Exp g)
+      Log -> Binary Over dg g
+      Sin -> Binary Times dg (Unary Cos g)
+      Cos -> Binary Times (Number -1) (Binary Times dg (Unary Sin g)) 
+  in dOp a (d a)

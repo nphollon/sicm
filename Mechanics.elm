@@ -3,7 +3,7 @@ module Mechanics where
 import List
 import Result
 
-type alias Result a = Result.Result String a
+import Symbolic
 
 freeParticleLagrangian : Float -> LocalTuple -> Float
 freeParticleLagrangian mass local = 
@@ -19,7 +19,7 @@ type alias Vector = List Float
 dim : Vector -> Int
 dim = List.length
 
-vectorPair : Vector -> Vector -> Result (Vector, Vector)
+vectorPair : Vector -> Vector -> Result String (Vector, Vector)
 vectorPair v1 v2 =
   let pair = (v1, v2)
   in if | dim v1 == dim v2 -> Ok pair
@@ -31,7 +31,5 @@ dotProduct (v1, v2) = List.foldl (+) 0 <| List.map2 (*) v1 v2
 square : Vector -> Float
 square = List.foldl (\x y -> x^2 + y) 0
 
-{-}
-q : List LiteralFunction -> Float -> Vector
-q coords t = List.map (valueAt t) coords
--}
+q : List Symbolic.Expression -> Float -> Result Symbolic.Error Vector
+q coords t = List.foldr (Symbolic.valueAt t "t" >> Result.map2 (::)) (Ok []) coords

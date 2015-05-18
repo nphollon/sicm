@@ -126,6 +126,8 @@ result expr = case expr of
   Number a -> Ok a
   otherwise -> Err UndefinedSymbols
 
+valueAt : Float -> String -> Expression -> Result Error Float
+valueAt v k = substitute v k >> result
 
 differentiate : String -> Expression -> Expression
 differentiate symbol expr =

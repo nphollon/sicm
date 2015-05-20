@@ -4,7 +4,7 @@ import Dict exposing (Dict)
 import String
 
 type Expression =
-  Symbol String |
+  Unknown |
   Number Float |
   Binary BinaryOp Expression Expression |
   Unary UnaryOp Expression
@@ -15,27 +15,22 @@ type UnaryOp = Exp | Log | Sin | Cos
 type Error =
   StackEmpty |
   StackTooBig |
-  UndefinedSymbols |
+  UnparseableSymbol |
   NotDifferentiable
-
-
-symbolTable : Dict String (List Expression -> Result Error (List Expression))
-symbolTable = Dict.fromList [
-  ("pi", push (Number pi)),
-  ("+", binaryOp Plus),
-  ("-", binaryOp Minus),
-  ("*", binaryOp Times),
-  ("/", binaryOp Over),
-  ("^", binaryOp Power),
-  ("exp", unaryOp Exp),
-  ("log", unaryOp Log),
-  ("sin", unaryOp Sin),
-  ("cos", unaryOp Cos) ]
 
 (...) = Result.andThen
 
-evaluate : Float -> String -> String -> Result Error Float
-evaluate x v f = Result.map (substitute x v >> simplify) (parse f) ... result
+evaluate : String -> Float -> Result Error Float
+evaluate formula x0 = parse formula |> Result.map (valueAt x0)
+
+valueAt : Float -> Expression -> Float
+valueAt x expr =
+  let r = valueAt x 
+  in case expr of
+    Unknown -> x
+    Number c -> c
+    Binary op a b -> applyBinary op (r a) (r b)
+    Unary op a -> applyUnary op (r a)
 
 parse : String -> Result Error Expression
 parse text =
@@ -51,16 +46,30 @@ parseWith token stack =
     Just op -> op stack
     Nothing -> case String.toFloat token of
       Ok x -> push (Number x) stack
-      Err _ -> push (Symbol token) stack
+      Err _ -> Err UnparseableSymbol
 
-binaryOp : BinaryOp -> List Expression -> Result Error (List Expression)
-binaryOp op stack = case stack of
-  (y :: x :: rest) -> push (Binary op x y) rest
+symbolTable : Dict String (List Expression -> Result Error (List Expression))
+symbolTable = Dict.fromList [
+  ("x", push (Unknown)),
+  ("pi", push (Number pi)),
+  ("+", binaryOpStack plus'),
+  ("-", binaryOpStack minus'),
+  ("*", binaryOpStack times'),
+  ("/", binaryOpStack over'),
+  ("^", binaryOpStack power'),
+  ("exp", unaryOpStack exp'),
+  ("log", unaryOpStack log'),
+  ("sin", unaryOpStack sin'),
+  ("cos", unaryOpStack cos') ]
+
+binaryOpStack : (Expression -> Expression -> Expression) -> List Expression -> Result Error (List Expression)
+binaryOpStack op stack = case stack of
+  (y :: x :: rest) -> push (op x y) rest
   otherwise -> Err StackEmpty
 
-unaryOp : UnaryOp -> List Expression -> Result Error (List Expression)
-unaryOp op stack = case stack of
-  (x :: rest) -> push (Unary op x) rest
+unaryOpStack : (Expression -> Expression) -> List Expression -> Result Error (List Expression)
+unaryOpStack op stack = case stack of
+  (x :: rest) -> push (op x) rest
   otherwise -> Err StackEmpty
 
 push : a -> List a -> Result Error (List a)
@@ -72,90 +81,84 @@ pullFromStack s = case s of
   [] -> Err StackEmpty
   otherwise -> Err StackTooBig
 
-substitute : Float -> String -> Expression -> Expression
-substitute x name expr = 
-  let
-    recurse = substitute x name
+differentiate : Expression -> Expression
+differentiate expr =
+  let d f = (f, differentiate f)
   in case expr of
-    Symbol s -> if (s == name) then (Number x) else expr
-    Unary op operand -> Unary op (recurse operand)
-    Binary op first second -> Binary op (recurse first) (recurse second)
-    otherwise -> expr
+    Unknown -> Number 1
+    Number a -> Number 0
+    Binary op f g -> binaryDerivative op (d f) (d g)
+    Unary op f -> unaryDerivative op (d f)
 
-simplify : Expression -> Expression
-simplify expr = 
-  case expr of
-    Binary op f g -> simplifyBinary op (simplify f) (simplify g)
-    Unary op f -> simplifyUnary op (simplify f)
-    otherwise -> expr
+binaryDerivative : BinaryOp -> (Expression, Expression) -> (Expression, Expression) -> Expression
+binaryDerivative op (g, dg) (h, dh) = case op of
+  Plus -> plus' dg dh
+  Minus -> minus' dg dh
+  Times -> plus' (times' h dg) (times' dh g)
+  Over -> minus' (over' dg h) (times' g (over' dh (power' h (Number 2))))
+  Power -> times' (power' g h) (plus' (times' dh (log' g)) (times' h (over' dg g)))
 
-simplifyUnary : UnaryOp -> Expression -> Expression
-simplifyUnary op f = case (op, f) of
-  (Exp, Number a) -> Number (e ^ a)
-  (Log, Number a) -> Number (logBase e a)
-  (Sin, Number a) -> Number (sin a)
-  (Cos, Number a) -> Number (cos a)
-  otherwise -> Unary op f
+unaryDerivative : UnaryOp -> (Expression, Expression) -> Expression
+unaryDerivative op (g, dg) = case op of
+  Exp -> times' dg (exp' g)
+  Log -> over' dg g
+  Sin -> times' dg (cos' g)
+  Cos -> times' (Number -1) (times' dg (sin' g)) 
 
+plus' a b = case (a, b) of
+  (Number 0, b') -> b'
+  (a', Number 0) -> a'
+  otherwise -> simplifyBinary Plus a b
+
+minus' a b = case (a, b) of
+  (Number 0, b') -> Binary Times (Number -1) b'
+  (a', Number 0) -> a'
+  otherwise -> simplifyBinary Minus a b
+
+times' a b = case (a, b) of
+  (Number 0, _) -> Number 0
+  (_, Number 0) -> Number 0
+  (Number 1, b') -> b'
+  (a', Number 1) -> a'
+  otherwise -> simplifyBinary Times a b
+
+over' a b = case (a, b) of
+  (Number 0, _) -> Number 0
+  (a', Number 1) -> a'
+  otherwise -> simplifyBinary Over a b
+
+power' a b = case (a, b) of
+  (a', Number 0) -> Number 1
+  (Number 1, _) -> Number 1
+  (a', Number 1) -> a'
+  otherwise -> simplifyBinary Power a b
+
+exp' = simplifyUnary Exp
+log' = simplifyUnary Log
+sin' = simplifyUnary Sin
+cos' = simplifyUnary Cos
 
 simplifyBinary : BinaryOp -> Expression -> Expression -> Expression
-simplifyBinary op f g = case (op, f, g) of
-  (Plus, Number 0, _) -> g
-  (Plus, _, Number 0) -> f
-  (Plus, Number a, Number b) -> Number (a + b)
+simplifyBinary op a b = case (a, b) of
+  (Number x, Number y) -> Number (applyBinary op x y)
+  otherwise -> Binary op a b
 
-  (Minus, _, _) -> simplify (Binary Plus f (Binary Times g (Number -1)))
+applyBinary : BinaryOp -> Float -> Float -> Float
+applyBinary op = case op of
+  Plus -> (+)
+  Minus -> (-)
+  Times -> (*)
+  Over -> (/)
+  Power -> (^)
 
-  (Times, Number 0, _) -> Number 0
-  (Times, _, Number 0) -> Number 0
-  (Times, Number 1, _) -> g
-  (Times, _, Number 1) -> f
-  (Times, Number a, Number b) -> Number (a * b)
+simplifyUnary : UnaryOp -> Expression -> Expression
+simplifyUnary op a = case a of
+  Number x -> Number (applyUnary op x)
+  otherwise -> Unary op a
 
-  (Over, _, _) -> simplify (Binary Times f (Binary Power g (Number -1)))
-
-  (Power, _, Number 0) -> Number 1
-  (Power, Number 1, _) -> Number 1
-  (Power, _, Number 1) -> f
-  (Power, Number a, Number b) -> Number (a ^ b)
-
-  otherwise -> Binary op f g
-
-result : Expression -> Result Error Float
-result expr = case expr of
-  Number a -> Ok a
-  otherwise -> Err UndefinedSymbols
-
-valueAt : Float -> String -> Expression -> Result Error Float
-valueAt v k = substitute v k >> result
-
-differentiate : String -> Expression -> Expression
-differentiate symbol expr =
-  case expr of
-    Number a -> Number 0
-    Symbol s -> if (s == symbol) then (Number 1) else (Number 0)
-    Binary op f g -> binaryChainRule symbol op f g
-    Unary op f -> f
-
-binaryChainRule : String -> BinaryOp -> Expression -> Expression -> Expression
-binaryChainRule symbol op a b =
-  let
-    d g = differentiate symbol g
-    dOp g h dg dh = case op of
-      Plus -> Binary Plus dg dh
-      Minus -> Binary Minus dg dh
-      Times -> Binary Plus (Binary Times h dg) (Binary Times dh g)
-      Over -> Binary Minus (Binary Over dg h) (Binary Times g (Binary Times dh (Binary Power h (Number -2))))
-      Power -> Binary Times (Binary Power g h) (Binary Plus (Binary Times dh (Unary Log g)) (Binary Times h (Binary Over dg g)))
-  in dOp a b (d a) (d b)
-
-unaryChainRule : String -> UnaryOp -> Expression -> Expression
-unaryChainRule symbol op a =
-  let
-    d g = differentiate symbol g
-    dOp g dg = case op of
-      Exp -> Binary Times dg (Unary Exp g)
-      Log -> Binary Over dg g
-      Sin -> Binary Times dg (Unary Cos g)
-      Cos -> Binary Times (Number -1) (Binary Times dg (Unary Sin g)) 
-  in dOp a (d a)
+applyUnary : UnaryOp -> Float -> Float
+applyUnary op = case op of
+  Exp -> (^) e
+  Log -> logBase e
+  Sin -> sin
+  Cos -> cos
